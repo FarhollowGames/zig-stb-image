@@ -227,11 +227,20 @@ fn readRle(
     }
 }
 
+/// `ldexp(1, e - 136)` for each exponent byte `e`, as the original's
+/// conversion computes it: every value is a power of two, exact in `f32`.
+const exponent_scales: [256]f32 = blk: {
+    @setEvalBranchQuota(10_000);
+    var scales: [256]f32 = undefined;
+    for (&scales, 0..) |*scale, e| scale.* = std.math.ldexp(@as(f32, 1.0), @as(i32, e) - (128 + 8));
+    break :blk scales;
+};
+
 /// `stbi__hdr_convert`: one RGBE pixel to `comp` floats; grey is the mean
 /// of the three, alpha 1.
 fn convert(output: []f32, rgbe: [4]u8, comp: u3) void {
     if (rgbe[3] != 0) {
-        const f1 = std.math.ldexp(@as(f32, 1.0), @as(i32, rgbe[3]) - (128 + 8));
+        const f1 = exponent_scales[rgbe[3]];
         if (comp <= 2) {
             const sum: u32 = @as(u32, rgbe[0]) + rgbe[1] + rgbe[2];
             output[0] = @as(f32, @floatFromInt(sum)) * f1 / 3;
@@ -289,4 +298,11 @@ test strtol {
     try std.testing.expectEqual(@as(i64, max), strtol("99999999999999999999").value);
     try std.testing.expectEqual(@as(i64, min), strtol("-99999999999999999999").value);
     try std.testing.expectEqual(@as(i64, min), strtol("-9223372036854775808").value);
+}
+
+test "the exponent table holds ldexp's scale for every exponent byte" {
+    for (exponent_scales, 0..) |scale, e| {
+        const expected = std.math.ldexp(@as(f32, 1.0), @as(i32, @intCast(e)) - (128 + 8));
+        try std.testing.expectEqual(@as(u32, @bitCast(expected)), @as(u32, @bitCast(scale)));
+    }
 }
