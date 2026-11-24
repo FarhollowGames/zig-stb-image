@@ -762,7 +762,18 @@ pub fn expectGifSame(
             if (port) |_| {
                 label.print(request, "gif: the port flipped what the original flips past its buffer", .{});
                 return error.TestUnexpectedResult;
-            } else |_| return;
+            } else |err| switch (err) {
+                // The flip, or an unsafe case the original met before it.
+                error.GifFlipComponents,
+                error.GifDisposeToPrevious,
+                error.GifZeroAreaFrames,
+                error.TooLargeGif,
+                => return,
+                else => {
+                    label.print(request, "gif: the original decodes, the port fails with {t}", .{err});
+                    return error.TestUnexpectedResult;
+                },
+            }
         }
     }
     for ([_]Path{ .simd, .scalar }) |path| {
