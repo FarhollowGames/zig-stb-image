@@ -1,5 +1,64 @@
 # Status
 
+## Report on the remaining passes (24 November 2026)
+
+On branch `review/remaining-passes`, from `main` (`19e2745`); not merged.
+
+- **Already reviewed (steps 5 to 7, 12 November):** JPEG, PNG and zlib,
+  BMP, TGA, PSD and the component conversion had a performance pass; the
+  skeptic's report covered the shared code, the functions, the settings,
+  the limits and the format switches, and its findings were fixed. GIF,
+  HDR, PIC and PNM had no performance pass (PNM was only measured in step
+  7, and PIC had no bench row), and no finding or probe of the skeptic
+  names them. The step-7 fixes themselves (`Source.readBytes` in pieces,
+  the path and file readers, the PIC empty image, the Huffman change,
+  the asserts) were written after the review. The rows said
+  `oracle-tested`, never `reviewed`.
+- **The unmerged branches:** `skeptic/probes`, `wip/perf/jpeg`,
+  `wip/perf/pixels` and `wip/perf/png` are not on the remote. The last
+  three are kept as the tags `archive/wip/perf/*`: each is a stash made
+  on 11 November at 23:59, on its perf branch. `pixels` (the 64-byte
+  vertical flip, raw PSD planes interleaved from the buffer) is in `main`
+  (`3c7cecd`, `07b7738`). `png` turns the vector unfiltering back into the
+  byte loop that `main`'s `f28a8ec` replaced. `jpeg` fills a DC-only
+  block without the IDCT, which the JPEG pass measured and dropped (no
+  gain). None is worth keeping. `skeptic/probes` and
+  `test/skeptic_probes.zig` exist nowhere in the repository; the probes
+  that mattered became the step-7 tests.
+- **Skeptic (step 6), by an agent that did not write the port:** GIF,
+  HDR, PIC and PNM, line by line against the original, and the step-7
+  code. One bug: a float load of a non-HDR file whose 8-bit load fails a
+  size check gave "outofmem"; the original says "unknown image type".
+  Test "a float load whose 8-bit load fails a size check as out of
+  memory fails as in the original" (`test/core_test.zig`), failed first;
+  fixed in `loadfMain`. A float load whose allocation really fails
+  still returns `error.OutOfMemory` (the original says "unknown image
+  type"); `doc/parity.md` "Every format" has it, for the author to
+  approve. The GIF oracle now requires the flip refusal where the
+  original flips past its buffer (no bug). New tests, which passed at
+  once: GIF, HDR, PIC and PNM cut at every byte across a reader's
+  buffer; BMP rows and PSD planes and runs read in pieces, cut short.
+  Not reachable by tests, noted: Zig's positional `File.Reader.discard`
+  underflows if skipped again past the end of a file; `layers * w` in
+  `loadAnimation` is a `u32`, which overflows only with `bytes_max` above
+  4 GiB; a GIF buffer past `int` fails as `OutOfMemory`.
+- **Performance (step 5) on GIF, HDR, PIC and PNM**, port time / original
+  SSE2 time, interleaved before and after runs (`doc/BENCHMARKS.md`,
+  "Second machine"). Kept: HDR exponents by table (hdr float 0.76 to
+  0.73); HDR run-length literals copied from the buffer (0.70 to 0.58);
+  PIC values from the buffer (pic raw 1.03 to 0.22, pic rle 0.86 to
+  0.63). Dropped (within noise): HDR conversion without the zero branch;
+  GIF strings written straight into the row. Not changed: PNM (copies
+  its samples, 1.00), HDR to 8-bit (the C library's `pow`).
+- **Tests:** 191 pass in ReleaseSafe and in ReleaseFast (10 unit, 179
+  against the original, 2 format-switch builds); the JPEG and float tests
+  also with `-Djpeg-idct=scalar`.
+- **Open, for the author:** on this machine (Intel Xeon, Emerald Rapids)
+  jpeg 4:2:0 to rgba (1.27) and tga raw to rgba (1.35) are slower than the
+  original, before these changes too, where the first machine had 0.96 and
+  0.63. The merge of the float-load fix moved PSD raw from 0.23 to 0.36
+  (and PSD and TGA RLE the other way) with no PSD or TGA code changed.
+
 ## Report at the end of step 7 (12 November 2026)
 
 - Steps 5 to 7 are done on `review/perf-and-skeptic`. Every bench row is
@@ -79,7 +138,11 @@ commit `a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d`, `reference/stb_image.h`,
   and compare success, size, channel count, every output byte (floats by
   their bits) and the failure reason in both its short and long forms;
 - **benchmarked**: timed against the original by `zig build bench`;
-- **reviewed**: an agent that did not write the port has tried to break it.
+- **reviewed**: an agent that did not write the port has tried to break it,
+  and another has made a performance pass.
+
+Every row not left out is reviewed; the state after reviewed is the
+furthest its tests and the benchmark go.
 
 ## Work in progress
 
