@@ -214,7 +214,12 @@ fn readRle(
                     }
                 } else {
                     if (count == 0 or count > left) return source.fail(error.HdrBadRle);
-                    for (0..count) |_| {
+                    if (source.takeBuffered(count)) |literal| {
+                        for (literal) |value| {
+                            line[i * 4 + k] = value;
+                            i += 1;
+                        }
+                    } else for (0..count) |_| {
                         line[i * 4 + k] = source.get8();
                         i += 1;
                     }
