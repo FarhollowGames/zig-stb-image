@@ -266,6 +266,8 @@ fn decodeAll(allocator: std.mem.Allocator, bytes: []const u8) !void {
         image.deinit(allocator);
         var wide = try stbi.loadFromMemory(u16, allocator, bytes, .{ .components = components });
         wide.deinit(allocator);
+        var float = try stbi.loadFromMemory(f32, allocator, bytes, .{ .components = components });
+        float.deinit(allocator);
     }
 }
 
