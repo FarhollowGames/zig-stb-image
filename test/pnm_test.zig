@@ -282,3 +282,26 @@ test "a PNM decode frees everything when any allocation fails" {
         try std.testing.checkAllAllocationFailures(gpa, decodeAll, .{bytes});
     }
 }
+
+test "a PNM whose header crosses a reader's buffer, cut at every byte, decodes or fails as in the original" {
+    // Readers fill 128 bytes at a time; a comment longer than that puts the
+    // size, the maximum value and the samples past the first buffer, where
+    // a reader's end is seen through `atEof`.
+    var prng: std.Random.DefaultPrng = .init(0x9a30_0006);
+    const rng = prng.random();
+    const comment = "#" ++ @as([118]u8, @splat('c')) ++ "\n";
+    const headers = [_][]const u8{
+        "P6\n" ++ comment ++ "7 5\n255\n",
+        "P5\n" ++ comment ++ "# two\n9 11 65535\n",
+    };
+    for (headers) |header| {
+        const comp: usize = if (header[1] == '6') 3 else 1;
+        const sample_size: usize = if (std.mem.indexOf(u8, header, "65535") != null) 2 else 1;
+        const pixels: usize = if (comp == 3) 35 else 99;
+        const whole = try withData(rng, header, comp * pixels * sample_size);
+        defer gpa.free(whole);
+        for (100..whole.len + 1) |len| {
+            try oracle.expectAllSame(gpa, whole[0..len], .{ .name = "buffer boundary", .case = len });
+        }
+    }
+}
