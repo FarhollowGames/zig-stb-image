@@ -33,8 +33,8 @@ On branch `review/remaining-passes`, from `main` (`19e2745`); not merged.
   memory fails as in the original" (`test/core_test.zig`), failed first;
   fixed in `loadfMain`. A float load whose allocation really fails
   still returns `error.OutOfMemory` (the original says "unknown image
-  type"); `doc/parity.md` "Every format" has it, for the author to
-  approve. The GIF oracle now requires the flip refusal where the
+  type"); `doc/parity.md` "Every format" has it, approved by the author
+  (24 November 2026). The GIF oracle now requires the flip refusal where the
   original flips past its buffer (no bug). New tests, which passed at
   once: GIF, HDR, PIC and PNM cut at every byte across a reader's
   buffer; BMP rows and PSD planes and runs read in pieces, cut short.
@@ -443,6 +443,13 @@ the tests of each case where the original is unsafe or never returns.
   are UTF-8 on Windows already.
 - `STB_IMAGE_STATIC`, `STBIDEF`, `STB_IMAGE_IMPLEMENTATION`: left out; they
   are C linkage only.
+
+### Every format
+
+- **A float load whose allocation fails:** the original's `stbi_loadf`
+  reports every failure of the 8-bit load as "unknown image type"; the
+  port returns `error.OutOfMemory` where an allocation itself failed, so
+  a caller can tell. A size check fails as an unknown image type in both.
 
 ### zlib and PNG
 

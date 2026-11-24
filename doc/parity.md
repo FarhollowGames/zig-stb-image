@@ -20,7 +20,8 @@ on the SSE2 port), see `TESTING.md`.
   "unknown image type", a failed allocation too. The port returns
   `error.OutOfMemory` where an allocation failed, so a caller can tell. A
   size check that the original reports as "outofmem" fails as an unknown
-  image type in both. Not a refusal. Tests: "a float load whose 8-bit load
+  image type in both. Not a refusal; approved by the author (24 November
+  2026). Tests: "a float load whose 8-bit load
   fails a size check as out of memory fails as in the original", and each
   format's allocation failure test.
 
