@@ -430,3 +430,43 @@ pub const hdr_fuzz: fuzz.Config = .{
     .cases = 2000,
     .unsafe = @import("hdr_unsafe.zig").unsafe,
 };
+
+test "an HDR file whose header and scanlines cross a reader's buffer, cut at every byte, fails or decodes as in the original" {
+    // Header lines and scanlines across the reader's 128-byte buffers, where
+    // `getToken` and the scanlines see a reader's end through `atEof`.
+    var files: [2][]u8 = undefined;
+    {
+        var w: Writer = .{};
+        errdefer w.deinit();
+        try w.add("#?RGBE\n#" ++ @as([130]u8, @splat('h')) ++ "\nFORMAT=32-bit_rle_rgbe\n\n-Y 3 +X 12\n");
+        var pixels: [12][4]u8 = undefined;
+        for (0..3) |row| {
+            pattern(&pixels, 40 + row);
+            try w.rleScanline(&pixels, 2);
+        }
+        files[0] = try w.bytes.toOwnedSlice(gpa);
+    }
+    files[1] = try makeFlat(5, 30, 41);
+    defer for (files) |file| gpa.free(file);
+    for (files) |file| {
+        for (100..file.len + 1) |len| {
+            try expectHdrSame(file[0..len], .{ .name = "buffer boundary", .case = len });
+        }
+    }
+}
+
+test "HDR pixels of every exponent and grey sum convert as in the original" {
+    // Flat pixels, each read as written: every exponent, with mantissas
+    // whose grey sums round in different ways.
+    var w: Writer = .{};
+    defer w.deinit();
+    try w.header(4, 256);
+    for (0..256) |e| {
+        const exponent: u8 = @intCast(e);
+        try w.add(&.{ 255, 255, 255, exponent });
+        try w.add(&.{ 1, 0, 0, exponent });
+        try w.add(&.{ @truncate(e *% 7), @truncate(e *% 13 +% 1), @truncate(e *% 29 +% 2), exponent });
+        try w.add(&.{ 254, 255, 255, exponent });
+    }
+    try oracle.expectAllSame(gpa, w.bytes.items, .{ .name = "every exponent" });
+}

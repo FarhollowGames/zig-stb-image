@@ -535,3 +535,20 @@ pub const pic_fuzz: fuzz.Config = .{
     .cases = 3000,
     .unsafe = @import("pic_unsafe.zig").unsafe,
 };
+
+test "a PIC file whose scanlines cross a reader's buffer, cut at every byte, fails or decodes as in the original" {
+    // The header is 104 bytes, so the packets and scanlines cross the
+    // reader's first 128-byte buffer, where `readValue` and the counts see
+    // a reader's end through `atEof`.
+    const files = [_][]u8{
+        try makePic(9, 4, layouts[8], .{}, 8),
+        try makePic(40, 2, layouts[5], .{ .long_runs = true }, 9),
+        try makePic(12, 3, layouts[7], .{ .odd_counts = true }, 10),
+    };
+    defer for (files) |file| gpa.free(file);
+    for (files) |file| {
+        for (90..file.len + 1) |len| {
+            try expectPicSame(file[0..len], .{ .name = "buffer boundary", .case = len });
+        }
+    }
+}

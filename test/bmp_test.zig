@@ -900,3 +900,41 @@ test "a BMP decode frees everything when any allocation fails" {
         try std.testing.checkAllAllocationFailures(gpa, decodeAll, .{bytes});
     }
 }
+
+test "BMP rows read in pieces through a reader, cut short, decode as in the original" {
+    // A row not all in a reader's buffer is read 256 pixels at a time; the
+    // cuts end the input inside a piece, at its end, and past it, and an
+    // offset past the end reads every row as zeros.
+    var prng: std.Random.DefaultPrng = .init(0xb3b0_000a);
+    const rng = prng.random();
+    for ([_]u16{ 24, 32 }) |bpp| {
+        const width = 600;
+        const pixels = try randomPixels(rng, width, 3, bpp, 0);
+        defer gpa.free(pixels);
+        for ([_]?u32{ null, 54 + 5000 }) |offset| {
+            const bytes = try encodeBmp(.{
+                .width = width,
+                .height = 3,
+                .bpp = bpp,
+                .pixels = pixels,
+                .offset = offset,
+            }, rng);
+            defer gpa.free(bytes);
+            const row = rowBytes(width, bpp);
+            const piece = 256 * @as(usize, bpp / 8);
+            var lengths: std.ArrayList(usize) = .empty;
+            defer lengths.deinit(gpa);
+            for (0..3) |r| {
+                for ([_]usize{ 0, 1, piece - 1, piece, piece + 1, 2 * piece + 7 }) |delta| {
+                    const len = 54 + r * row + delta;
+                    if (len < bytes.len) try lengths.append(gpa, len);
+                }
+            }
+            for (0..12) |_| try lengths.append(gpa, 54 + rng.uintLessThan(usize, bytes.len - 54));
+            try lengths.append(gpa, bytes.len);
+            for (lengths.items) |len| {
+                try oracle.expectAllSame(gpa, bytes[0..len], .{ .name = "pieces", .case = len });
+            }
+        }
+    }
+}
