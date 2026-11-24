@@ -583,3 +583,36 @@ test "a PSD decode frees everything when any allocation fails" {
         }
     }
 }
+
+/// Lengths to cut a file of `len` bytes at: around every multiple of
+/// `piece` and of a reader's 128 bytes, and some at random.
+fn cutLengths(rng: std.Random, len: usize, piece: usize, out: *std.ArrayList(usize)) !void {
+    var at: usize = 0;
+    while (at < len) : (at += piece) {
+        for ([_]usize{ 0, 1, 127, 128, 129 }) |delta| {
+            if (at + delta < len) try out.append(gpa, at + delta);
+        }
+    }
+    for (0..24) |_| try out.append(gpa, rng.uintLessThan(usize, len));
+}
+
+test "PSD planes and literal runs read in pieces through a reader, cut short, decode or fail as in the original" {
+    // Raw planes are read 1024 bytes at a time when they are not all in a
+    // reader's buffer, and literal runs past the buffer through a copy;
+    // the cuts end them inside a piece, at its end, and past it.
+    var prng: std.Random.DefaultPrng = .init(0x95d0_0009);
+    const rng = prng.random();
+    for ([_]u16{ 8, 16 }) |depth| {
+        for ([_]bool{ false, true }) |rle| {
+            const bytes = try makePsd(rng, 4, 700, 2, depth, rle);
+            defer gpa.free(bytes);
+            var lengths: std.ArrayList(usize) = .empty;
+            defer lengths.deinit(gpa);
+            try cutLengths(rng, bytes.len, 1024, &lengths);
+            try lengths.append(gpa, bytes.len);
+            for (lengths.items) |len| {
+                try oracle.expectAllSame(gpa, bytes[0..len], .{ .name = "pieces", .case = len });
+            }
+        }
+    }
+}

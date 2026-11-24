@@ -255,8 +255,8 @@ doubles, and on the special values. All match bit for bit.
 ### Build modes
 
 The tests run in ReleaseSafe by default; `-Dtest-optimize` selects another
-mode. The original is always built at `-O3`. On 12 November 2026 every test
-passed on x86-64 Linux (glibc 2.44) in ReleaseSafe and in ReleaseFast:
-182 tests in each (9 unit tests, 171 against the original, and one on each
-of the two format-switch builds). The JPEG tests also passed with
-`-Djpeg-idct=scalar`.
+mode. The original is always built at `-O3`. On 24 November 2026 every test
+passed on x86-64 Linux (Ubuntu 24.04, glibc 2.39) in ReleaseSafe and in
+ReleaseFast: 191 tests in each (10 unit tests, 179 against the original,
+and one on each of the two format-switch builds). The JPEG tests also
+passed with `-Djpeg-idct=scalar`.

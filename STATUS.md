@@ -1,5 +1,64 @@
 # Status
 
+## Report on the remaining passes (24 November 2026)
+
+On branch `review/remaining-passes`, from `main` (`19e2745`); not merged.
+
+- **Already reviewed (steps 5 to 7, 12 November):** JPEG, PNG and zlib,
+  BMP, TGA, PSD and the component conversion had a performance pass; the
+  skeptic's report covered the shared code, the functions, the settings,
+  the limits and the format switches, and its findings were fixed. GIF,
+  HDR, PIC and PNM had no performance pass (PNM was only measured in step
+  7, and PIC had no bench row), and no finding or probe of the skeptic
+  names them. The step-7 fixes themselves (`Source.readBytes` in pieces,
+  the path and file readers, the PIC empty image, the Huffman change,
+  the asserts) were written after the review. The rows said
+  `oracle-tested`, never `reviewed`.
+- **The unmerged branches:** `skeptic/probes`, `wip/perf/jpeg`,
+  `wip/perf/pixels` and `wip/perf/png` are not on the remote. The last
+  three are kept as the tags `archive/wip/perf/*`: each is a stash made
+  on 11 November at 23:59, on its perf branch. `pixels` (the 64-byte
+  vertical flip, raw PSD planes interleaved from the buffer) is in `main`
+  (`3c7cecd`, `07b7738`). `png` turns the vector unfiltering back into the
+  byte loop that `main`'s `f28a8ec` replaced. `jpeg` fills a DC-only
+  block without the IDCT, which the JPEG pass measured and dropped (no
+  gain). None is worth keeping. `skeptic/probes` and
+  `test/skeptic_probes.zig` exist nowhere in the repository; the probes
+  that mattered became the step-7 tests.
+- **Skeptic (step 6), by an agent that did not write the port:** GIF,
+  HDR, PIC and PNM, line by line against the original, and the step-7
+  code. One bug: a float load of a non-HDR file whose 8-bit load fails a
+  size check gave "outofmem"; the original says "unknown image type".
+  Test "a float load whose 8-bit load fails a size check as out of
+  memory fails as in the original" (`test/core_test.zig`), failed first;
+  fixed in `loadfMain`. A float load whose allocation really fails
+  still returns `error.OutOfMemory` (the original says "unknown image
+  type"); `doc/parity.md` "Every format" has it, for the author to
+  approve. The GIF oracle now requires the flip refusal where the
+  original flips past its buffer (no bug). New tests, which passed at
+  once: GIF, HDR, PIC and PNM cut at every byte across a reader's
+  buffer; BMP rows and PSD planes and runs read in pieces, cut short.
+  Not reachable by tests, noted: Zig's positional `File.Reader.discard`
+  underflows if skipped again past the end of a file; `layers * w` in
+  `loadAnimation` is a `u32`, which overflows only with `bytes_max` above
+  4 GiB; a GIF buffer past `int` fails as `OutOfMemory`.
+- **Performance (step 5) on GIF, HDR, PIC and PNM**, port time / original
+  SSE2 time, interleaved before and after runs (`doc/BENCHMARKS.md`,
+  "Second machine"). Kept: HDR exponents by table (hdr float 0.76 to
+  0.73); HDR run-length literals copied from the buffer (0.70 to 0.58);
+  PIC values from the buffer (pic raw 1.03 to 0.22, pic rle 0.86 to
+  0.63). Dropped (within noise): HDR conversion without the zero branch;
+  GIF strings written straight into the row. Not changed: PNM (copies
+  its samples, 1.00), HDR to 8-bit (the C library's `pow`).
+- **Tests:** 191 pass in ReleaseSafe and in ReleaseFast (10 unit, 179
+  against the original, 2 format-switch builds); the JPEG and float tests
+  also with `-Djpeg-idct=scalar`.
+- **Open, for the author:** on this machine (Intel Xeon, Emerald Rapids)
+  jpeg 4:2:0 to rgba (1.27) and tga raw to rgba (1.35) are slower than the
+  original, before these changes too, where the first machine had 0.96 and
+  0.63. The merge of the float-load fix moved PSD raw from 0.23 to 0.36
+  (and PSD and TGA RLE the other way) with no PSD or TGA code changed.
+
 ## Report at the end of step 7 (12 November 2026)
 
 - Steps 5 to 7 are done on `review/perf-and-skeptic`. Every bench row is
@@ -79,7 +138,11 @@ commit `a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d`, `reference/stb_image.h`,
   and compare success, size, channel count, every output byte (floats by
   their bits) and the failure reason in both its short and long forms;
 - **benchmarked**: timed against the original by `zig build bench`;
-- **reviewed**: an agent that did not write the port has tried to break it.
+- **reviewed**: an agent that did not write the port has tried to break it,
+  and another has made a performance pass.
+
+Every row not left out is reviewed; the state after reviewed is the
+furthest its tests and the benchmark go.
 
 ## Work in progress
 
@@ -300,58 +363,58 @@ The full test run passes (162 tests).
 
 | format | upstream | zig-stb-image | tests | state |
 | --- | --- | --- | --- | --- |
-| JPEG baseline | `stbi__jpeg_*` | `src/jpeg.zig` | `test/jpeg_test.zig`: the jpeg-decoder, libjpeg-turbo and image-rs corpora; "jpeg: every sampling factor combination the original accepts …", "jpeg: sizes that are not whole blocks or MCUs …", "jpeg: the frame types and table variants …", "jpeg: faults in the frame header … / tables … / scan headers fail as in the original", "jpeg: a JPEG cut short anywhere …", "jpeg: fuzzed baseline JPEGs load as in the original" | oracle-tested |
-| JPEG progressive | as above | as above | as above, and "jpeg: fuzzed progressive JPEGs load as in the original" | oracle-tested |
-| JPEG restart markers, DNL, Adobe and JFIF colour transforms, CMYK and YCCK | as above | as above | "jpeg: restart intervals and every restart marker …", "jpeg: a DNL segment …", "jpeg: every colour model decodes as in the original" | oracle-tested |
-| JPEG IDCT of the SSE2 build | `stbi__idct_simd` | `-Djpeg-idct=sse2`, the default on x86-64 | the JPEG suite run with `-Djpeg-idct=sse2`; "jpeg: coefficients past 16 bits give the samples of the original build the port follows"; "the vector SSE2 IDCT gives the samples of the SSE2 IDCT computed lane by lane" (`src/jpeg.zig`) | oracle-tested |
-| PNG 1, 2, 4, 8, 16 bits, every colour type, palettes, tRNS | `stbi__png_*` | `src/png.zig` | "png: the PngSuite's …" (primary, check, 16-bit, corrupt, unused), "png: image-rs's PNG images …", "png: libjpeg-turbo's PNG images …", "png: every colour type, bit depth, filter, interlacing and size …", "png: a tRNS colour key …", "png: damaged headers and chunks …", "png: every truncation …", "png: IDAT data in many chunks …", "png: more pixel data …", "png: the largest dimensions …", "png: a smaller dimension limit …", "png: palette indices past every PLTE …", "fuzz: mutated PNGs …", "png: each allocation failure …" | oracle-tested |
-| PNG Adam7 interlace | as above | as above | as above | oracle-tested |
-| PNG iPhone CgBI, BGR conversion and unpremultiply | `stbi__de_iphone` | as above | "png: the iPhone images …", "png: iPhone PNGs convert to RGB and unpremultiply …", "fuzz: mutated PNGs …" | oracle-tested |
-| zlib (inflate) | `stbi__zbuf`, `stbi__parse_zlib` | `src/zlib.zig` | "zlib: every block type and block size …", "zlib: corrupt, truncated and odd streams …", "zlib: zero bits past the end …", "zlib: initial sizes of 0 and 1 …", "zlib: the IDAT streams of the PNG corpus …", "fuzz: mutated zlib and raw DEFLATE streams …", "zlib: each allocation failure …" | oracle-tested |
-| TGA | `stbi__tga_*` | `src/tga.zig` | `test/tga_test.zig`: the TGA test suite, every image type, depth and origin, packets of every length, colour maps, headers, largest sizes, every cut, 3,000 fuzz cases, allocation failures | oracle-tested |
-| BMP | `stbi__bmp_*` | `src/bmp.zig` | `test/bmp_test.zig`: bmpsuite and libjpeg-turbo files, every header size and depth, bit-field masks of every width, zero alpha, palette sizes, entries past the palette (read as zero), bad headers, largest sizes, every cut, 3,000 fuzz cases, allocation failures | oracle-tested |
-| PSD (composited image, 8 and 16 bits, RLE and raw) | `stbi__psd_*` | `src/psd.zig` | `test/psd_test.zig`: the psd-tools PSD and PSB files, channel counts 0 to 56 at both depths and compressions, PackBits of every length byte, header fields, largest sizes, the 16-bit request and query, every cut, 3,000 fuzz cases, allocation failures | oracle-tested |
-| GIF, first frame | `stbi__gif_load` | `src/gif.zig` | `test/gif_test.zig`: the corpus, every LZW code size and stream shape, full code tables, corrupt rasters, interlace, palettes and transparency, frames off the canvas, extensions, headers, truncation, limits, allocation failures, 2,000 fuzz cases | oracle-tested |
-| GIF, every frame | `stbi_load_gif_from_memory` | `loadGifFromMemory` | as above, every test also as an animation: every disposal method, delays, frames kept after a failure; refusals in `doc/parity.md` | oracle-tested |
-| HDR (Radiance RGBE, RLE and flat) | `stbi__hdr_*` | `src/hdr.zig` | `test/hdr_test.zig`: the corpus, RLE and flat sizes, the old RLE form, bad runs, every header form, long header lines, truncation, gammas and scales, limits, allocation failures, 2,000 fuzz cases | oracle-tested |
-| PIC (Softimage) | `stbi__pic_*` | `src/pic.zig` | `test/pic_test.zig`: every packet type and channel layout, empty images, bad packets, overrunning and short scanlines, truncation, headers and info, limits, allocation failures, 3,000 fuzz cases | oracle-tested |
-| PNM (binary PGM and PPM, 8 and 16 bits) | `stbi__pnm_*` | `src/pnm.zig` | `test/pnm_test.zig`: stb, libjpeg-turbo and image-rs files, every maximum value, whitespace and comments, numbers at the edge of an int, largest sizes, every cut, 3,000 fuzz cases, allocation failures | oracle-tested |
+| JPEG baseline | `stbi__jpeg_*` | `src/jpeg.zig` | `test/jpeg_test.zig`: the jpeg-decoder, libjpeg-turbo and image-rs corpora; "jpeg: every sampling factor combination the original accepts …", "jpeg: sizes that are not whole blocks or MCUs …", "jpeg: the frame types and table variants …", "jpeg: faults in the frame header … / tables … / scan headers fail as in the original", "jpeg: a JPEG cut short anywhere …", "jpeg: fuzzed baseline JPEGs load as in the original" | reviewed, benchmarked |
+| JPEG progressive | as above | as above | as above, and "jpeg: fuzzed progressive JPEGs load as in the original" | reviewed, benchmarked |
+| JPEG restart markers, DNL, Adobe and JFIF colour transforms, CMYK and YCCK | as above | as above | "jpeg: restart intervals and every restart marker …", "jpeg: a DNL segment …", "jpeg: every colour model decodes as in the original" | reviewed, oracle-tested |
+| JPEG IDCT of the SSE2 build | `stbi__idct_simd` | `-Djpeg-idct=sse2`, the default on x86-64 | the JPEG suite run with `-Djpeg-idct=sse2`; "jpeg: coefficients past 16 bits give the samples of the original build the port follows"; "the vector SSE2 IDCT gives the samples of the SSE2 IDCT computed lane by lane" (`src/jpeg.zig`) | reviewed, benchmarked |
+| PNG 1, 2, 4, 8, 16 bits, every colour type, palettes, tRNS | `stbi__png_*` | `src/png.zig` | "png: the PngSuite's …" (primary, check, 16-bit, corrupt, unused), "png: image-rs's PNG images …", "png: libjpeg-turbo's PNG images …", "png: every colour type, bit depth, filter, interlacing and size …", "png: a tRNS colour key …", "png: damaged headers and chunks …", "png: every truncation …", "png: IDAT data in many chunks …", "png: more pixel data …", "png: the largest dimensions …", "png: a smaller dimension limit …", "png: palette indices past every PLTE …", "fuzz: mutated PNGs …", "png: each allocation failure …" | reviewed, benchmarked |
+| PNG Adam7 interlace | as above | as above | as above | reviewed, benchmarked |
+| PNG iPhone CgBI, BGR conversion and unpremultiply | `stbi__de_iphone` | as above | "png: the iPhone images …", "png: iPhone PNGs convert to RGB and unpremultiply …", "fuzz: mutated PNGs …" | reviewed, oracle-tested |
+| zlib (inflate) | `stbi__zbuf`, `stbi__parse_zlib` | `src/zlib.zig` | "zlib: every block type and block size …", "zlib: corrupt, truncated and odd streams …", "zlib: zero bits past the end …", "zlib: initial sizes of 0 and 1 …", "zlib: the IDAT streams of the PNG corpus …", "fuzz: mutated zlib and raw DEFLATE streams …", "zlib: each allocation failure …" | reviewed, benchmarked |
+| TGA | `stbi__tga_*` | `src/tga.zig` | `test/tga_test.zig`: the TGA test suite, every image type, depth and origin, packets of every length, colour maps, headers, largest sizes, every cut, 3,000 fuzz cases, allocation failures | reviewed, benchmarked |
+| BMP | `stbi__bmp_*` | `src/bmp.zig` | `test/bmp_test.zig`: bmpsuite and libjpeg-turbo files, every header size and depth, bit-field masks of every width, zero alpha, palette sizes, entries past the palette (read as zero), bad headers, largest sizes, every cut, 3,000 fuzz cases, allocation failures | reviewed, benchmarked |
+| PSD (composited image, 8 and 16 bits, RLE and raw) | `stbi__psd_*` | `src/psd.zig` | `test/psd_test.zig`: the psd-tools PSD and PSB files, channel counts 0 to 56 at both depths and compressions, PackBits of every length byte, header fields, largest sizes, the 16-bit request and query, every cut, 3,000 fuzz cases, allocation failures | reviewed, benchmarked |
+| GIF, first frame | `stbi__gif_load` | `src/gif.zig` | `test/gif_test.zig`: the corpus, every LZW code size and stream shape, full code tables, corrupt rasters, interlace, palettes and transparency, frames off the canvas, extensions, headers, truncation, limits, allocation failures, 2,000 fuzz cases | reviewed, benchmarked |
+| GIF, every frame | `stbi_load_gif_from_memory` | `loadGifFromMemory` | as above, every test also as an animation: every disposal method, delays, frames kept after a failure; refusals in `doc/parity.md` | reviewed, benchmarked |
+| HDR (Radiance RGBE, RLE and flat) | `stbi__hdr_*` | `src/hdr.zig` | `test/hdr_test.zig`: the corpus, RLE and flat sizes, the old RLE form, bad runs, every header form, long header lines, truncation, gammas and scales, limits, allocation failures, 2,000 fuzz cases | reviewed, benchmarked |
+| PIC (Softimage) | `stbi__pic_*` | `src/pic.zig` | `test/pic_test.zig`: every packet type and channel layout, empty images, bad packets, overrunning and short scanlines, truncation, headers and info, limits, allocation failures, 3,000 fuzz cases | reviewed, benchmarked |
+| PNM (binary PGM and PPM, 8 and 16 bits) | `stbi__pnm_*` | `src/pnm.zig` | `test/pnm_test.zig`: stb, libjpeg-turbo and image-rs files, every maximum value, whitespace and comments, numbers at the edge of an int, largest sizes, every cut, 3,000 fuzz cases, allocation failures | reviewed, benchmarked |
 
 ## Functions
 
 | upstream | zig-stb-image | tests | state |
 | --- | --- | --- | --- |
-| `stbi_load_from_memory`, `stbi_load_16_from_memory`, `stbi_loadf_from_memory` | `loadFromMemory(u8 / u16 / f32, …)` | every corpus file and fuzz case | oracle-tested |
-| `stbi_load_from_callbacks`, `stbi_load_16_from_callbacks`, `stbi_loadf_from_callbacks`, `stbi_io_callbacks` | `loadFromReader` on a `*std.Io.Reader` | corpus files; fuzz cases | oracle-tested |
-| `stbi_load_from_file`, `stbi_load_from_file_16`, `stbi_loadf_from_file` | `loadFromFile` on a `*std.Io.File.Reader`, leaving it where the original leaves the `FILE`; on a reader that cannot seek, where its reads reached | corpus files; fuzz cases; every corpus file through a reader that cannot seek; "files: loadFromFile and the file queries on a reader that cannot seek …" | oracle-tested |
-| `stbi_load`, `stbi_load_16`, `stbi_loadf` | `loadFromPath` | every corpus file at each bit depth, against the original's loads by path; "files: loadFromPath …" | oracle-tested |
-| `stbi_load_gif_from_memory` | `loadGifFromMemory` | `test/gif_test.zig` | oracle-tested |
-| `stbi_info_from_memory`, `stbi_info_from_callbacks`, `stbi_info_from_file`, `stbi_info` | `infoFromMemory`, `infoFromReader`, `infoFromFile`, `infoFromPath` | corpus files from memory, a reader, a file, a reader that cannot seek and by path; fuzz cases; "files: infoFromPath …" | oracle-tested |
-| `stbi_is_16_bit_from_memory`, `…_from_callbacks`, `…_from_file`, `stbi_is_16_bit` | `is16BitFromMemory`, `…FromReader`, `…FromFile`, `…FromPath` | as above; "files: is16BitFromPath …" | oracle-tested |
-| `stbi_is_hdr_from_memory`, `…_from_callbacks`, `…_from_file`, `stbi_is_hdr` | `isHdrFromMemory`, `…FromReader`, `…FromFile`, `…FromPath` | as above; "files: isHdrFromPath …" | oracle-tested |
-| `desired_channels`, `*channels_in_file` | `Options.components`, `Image.channels` and `Image.channels_in_file` | every load compares all five | oracle-tested |
-| `stbi_set_flip_vertically_on_load`, `…_thread` | `Options.flip_vertically`; `settings.setFlipVerticallyOnLoad`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | oracle-tested |
-| `stbi_set_unpremultiply_on_load`, `…_thread` | `Options.unpremultiply`; `settings.setUnpremultiplyOnLoad`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | oracle-tested |
-| `stbi_convert_iphone_png_to_rgb`, `…_thread` | `Options.convert_iphone_png`; `settings.convertIphonePngToRgb`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | oracle-tested |
-| `stbi_hdr_to_ldr_gamma`, `stbi_hdr_to_ldr_scale` | `Options.hdr_to_ldr_gamma`, `…_scale`; `settings.setHdrToLdrGamma`, `…Scale` | fuzz cases at random gammas and scales; "hdr: …" gamma and scale tests; "settings: the gamma and scale setters apply to loads on every thread …" | oracle-tested |
-| `stbi_ldr_to_hdr_gamma`, `stbi_ldr_to_hdr_scale` | `Options.ldr_to_hdr_gamma`, `…_scale`; `settings.setLdrToHdrGamma`, `…Scale` | as above | oracle-tested |
-| `stbi_failure_reason` | the returned `Error`; `failureReason(err)` | every failing load compares it | oracle-tested |
-| `stbi_image_free` | `Image.deinit`, `Animation.deinit` | every test runs on `std.testing.allocator` | oracle-tested |
-| `stbi_zlib_decode_malloc_guesssize`, `…_malloc`, `…_malloc_guesssize_headerflag`, `…_buffer`, `…_noheader_malloc`, `…_noheader_buffer` | `zlib.decodeAlloc` (`initial_size`, `parse_header`), `zlib.decodeBuffer` (`parse_header`) | "zlib: every block type and block size … through all six functions" and the other zlib tests | oracle-tested |
+| `stbi_load_from_memory`, `stbi_load_16_from_memory`, `stbi_loadf_from_memory` | `loadFromMemory(u8 / u16 / f32, …)` | every corpus file and fuzz case | reviewed, benchmarked |
+| `stbi_load_from_callbacks`, `stbi_load_16_from_callbacks`, `stbi_loadf_from_callbacks`, `stbi_io_callbacks` | `loadFromReader` on a `*std.Io.Reader` | corpus files; fuzz cases | reviewed, benchmarked |
+| `stbi_load_from_file`, `stbi_load_from_file_16`, `stbi_loadf_from_file` | `loadFromFile` on a `*std.Io.File.Reader`, leaving it where the original leaves the `FILE`; on a reader that cannot seek, where its reads reached | corpus files; fuzz cases; every corpus file through a reader that cannot seek; "files: loadFromFile and the file queries on a reader that cannot seek …" | reviewed, benchmarked |
+| `stbi_load`, `stbi_load_16`, `stbi_loadf` | `loadFromPath` | every corpus file at each bit depth, against the original's loads by path; "files: loadFromPath …" | reviewed, oracle-tested |
+| `stbi_load_gif_from_memory` | `loadGifFromMemory` | `test/gif_test.zig` | reviewed, benchmarked |
+| `stbi_info_from_memory`, `stbi_info_from_callbacks`, `stbi_info_from_file`, `stbi_info` | `infoFromMemory`, `infoFromReader`, `infoFromFile`, `infoFromPath` | corpus files from memory, a reader, a file, a reader that cannot seek and by path; fuzz cases; "files: infoFromPath …" | reviewed, oracle-tested |
+| `stbi_is_16_bit_from_memory`, `…_from_callbacks`, `…_from_file`, `stbi_is_16_bit` | `is16BitFromMemory`, `…FromReader`, `…FromFile`, `…FromPath` | as above; "files: is16BitFromPath …" | reviewed, oracle-tested |
+| `stbi_is_hdr_from_memory`, `…_from_callbacks`, `…_from_file`, `stbi_is_hdr` | `isHdrFromMemory`, `…FromReader`, `…FromFile`, `…FromPath` | as above; "files: isHdrFromPath …" | reviewed, oracle-tested |
+| `desired_channels`, `*channels_in_file` | `Options.components`, `Image.channels` and `Image.channels_in_file` | every load compares all five | reviewed, benchmarked |
+| `stbi_set_flip_vertically_on_load`, `…_thread` | `Options.flip_vertically`; `settings.setFlipVerticallyOnLoad`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | reviewed, oracle-tested |
+| `stbi_set_unpremultiply_on_load`, `…_thread` | `Options.unpremultiply`; `settings.setUnpremultiplyOnLoad`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | reviewed, oracle-tested |
+| `stbi_convert_iphone_png_to_rgb`, `…_thread` | `Options.convert_iphone_png`; `settings.convertIphonePngToRgb`, `…Thread` | "settings: a thread's own flag wins there …", "settings: a load with a thread's own settings …" | reviewed, oracle-tested |
+| `stbi_hdr_to_ldr_gamma`, `stbi_hdr_to_ldr_scale` | `Options.hdr_to_ldr_gamma`, `…_scale`; `settings.setHdrToLdrGamma`, `…Scale` | fuzz cases at random gammas and scales; "hdr: …" gamma and scale tests; "settings: the gamma and scale setters apply to loads on every thread …" | reviewed, oracle-tested |
+| `stbi_ldr_to_hdr_gamma`, `stbi_ldr_to_hdr_scale` | `Options.ldr_to_hdr_gamma`, `…_scale`; `settings.setLdrToHdrGamma`, `…Scale` | as above | reviewed, oracle-tested |
+| `stbi_failure_reason` | the returned `Error`; `failureReason(err)` | every failing load compares it | reviewed, oracle-tested |
+| `stbi_image_free` | `Image.deinit`, `Animation.deinit` | every test runs on `std.testing.allocator` | reviewed, oracle-tested |
+| `stbi_zlib_decode_malloc_guesssize`, `…_malloc`, `…_malloc_guesssize_headerflag`, `…_buffer`, `…_noheader_malloc`, `…_noheader_buffer` | `zlib.decodeAlloc` (`initial_size`, `parse_header`), `zlib.decodeBuffer` (`parse_header`) | "zlib: every block type and block size … through all six functions" and the other zlib tests | reviewed, benchmarked |
 
 ## Build options
 
 | upstream | zig-stb-image | state |
 | --- | --- | --- |
-| `STBI_NO_JPEG` … `STBI_NO_PNM`, `STBI_ONLY_JPEG` … `STBI_ONLY_PNM` | `-Djpeg=false` and so on: a format left out is never detected | tested: "formats: …" on two builds that leave out each format once |
-| `STBI_MAX_DIMENSIONS` | `Options.limits.dimension_max` | ported |
-| `STBI_FAILURE_USERMSG` | `failureMessage(err)` | ported |
+| `STBI_NO_JPEG` … `STBI_NO_PNM`, `STBI_ONLY_JPEG` … `STBI_ONLY_PNM` | `-Djpeg=false` and so on: a format left out is never detected | reviewed, tested: "formats: …" on two builds that leave out each format once |
+| `STBI_MAX_DIMENSIONS` | `Options.limits.dimension_max` | reviewed, oracle-tested |
+| `STBI_FAILURE_USERMSG` | `failureMessage(err)` | reviewed, oracle-tested |
 | `STBI_NO_FAILURE_STRINGS` | none: the strings are compiled only where `failureReason` or `failureMessage` is called | left out (approved) |
 | `STBI_NO_STDIO` | none: the file functions are compiled only where called | left out (approved) |
 | `STBI_NO_LINEAR`, `STBI_NO_HDR`'s float half | none: the float functions are compiled only where called | left out (approved) |
 | `STBI_SUPPORT_ZLIB`, `STBI_NO_ZLIB` | none: `zlib` is compiled only where used | left out (approved) |
-| `STBI_MALLOC`, `STBI_REALLOC`, `STBI_REALLOC_SIZED`, `STBI_FREE` | the `std.mem.Allocator` each call takes | ported |
-| `STBI_ASSERT` | Zig's safety checks | ported |
+| `STBI_MALLOC`, `STBI_REALLOC`, `STBI_REALLOC_SIZED`, `STBI_FREE` | the `std.mem.Allocator` each call takes | reviewed, ported |
+| `STBI_ASSERT` | Zig's safety checks | reviewed, ported |
 | `STBI_NO_SIMD`, `STBI_SSE2`, `STBI_NEON` | `-Djpeg-idct=sse2` (default on x86-64) or `scalar` (default elsewhere): the JPEG IDCT whose samples to give where the two differ (see "Left out") | left out (approved) |
 | `STBI_NO_THREAD_LOCALS` | none: Zig has `threadlocal` on every target the port builds for | left out (approved) |
 | `STBI_WINDOWS_UTF8`, `stbi_convert_wchar_to_utf8` | none: Zig paths are UTF-8 on Windows already | left out (approved) |

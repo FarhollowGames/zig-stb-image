@@ -884,3 +884,13 @@ pub const gif_fuzz: fuzz.Config = .{
     .gif = true,
     .unsafe = @import("gif_unsafe.zig").unsafe,
 };
+
+test "a GIF animation across a reader's buffers, cut at every byte, fails or decodes as in the original" {
+    // Interlaced frames past the first 128-byte buffer of a reader.
+    const bytes = try makeAnimation(9, 1, 3, true);
+    defer gpa.free(bytes);
+    try std.testing.expect(bytes.len > 300);
+    for (100..bytes.len + 1) |len| {
+        try expectGifAllSame(bytes[0..len], .{ .name = "buffer boundary", .case = len });
+    }
+}

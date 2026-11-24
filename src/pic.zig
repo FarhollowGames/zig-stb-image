@@ -62,6 +62,39 @@ fn copyValue(channel: u8, dest: *[4]u8, value: *const [4]u8) void {
     }
 }
 
+/// The bytes of `count` values of the channels `channel` names, when a
+/// source in memory holds them all: `readValue` then finds no end of the
+/// data and reads them in this order.
+fn takeValues(source: *Source, channel: u8, count: usize) ?[]const u8 {
+    if (source.reader != null) return null;
+    const size: usize = @popCount(channel & 0xf0);
+    return source.takeBuffered(count * size);
+}
+
+/// `copyValue` from each value of `values` into the pixels of `row`, in
+/// turn.
+fn copyValues(channel: u8, row: []u8, values: []const u8) void {
+    switch (channel >> 4) {
+        inline 0...15 => |high| {
+            const mask: u8 = high << 4;
+            const size = @popCount(mask);
+            if (size == 0) return;
+            const pixels = values.len / size;
+            for (0..pixels) |x| {
+                const value = values[x * size ..][0..size];
+                var at: usize = 0;
+                inline for (0..4) |c| {
+                    if (mask & (0x80 >> c) != 0) {
+                        row[x * 4 + c] = value[at];
+                        at += 1;
+                    }
+                }
+            }
+        },
+        else => unreachable,
+    }
+}
+
 /// The packets of the header. `comp` gets 4 when one of them holds alpha,
 /// 3 otherwise.
 fn readPackets(source: *Source, packets: *[max_packets]Packet, comp: *u3) Error![]const Packet {
@@ -100,7 +133,9 @@ fn readScanlines(
             switch (packet.type) {
                 0 => {
                     // Uncompressed.
-                    for (0..width) |x| try readValue(source, packet.channel, row[x * 4 ..][0..4]);
+                    if (takeValues(source, packet.channel, width)) |values| {
+                        copyValues(packet.channel, row, values);
+                    } else for (0..width) |x| try readValue(source, packet.channel, row[x * 4 ..][0..4]);
                 },
                 1 => {
                     // Runs only: a count, then the value to repeat.
@@ -136,7 +171,10 @@ fn readScanlines(
                         } else {
                             count += 1;
                             if (count > width - x) return source.fail(error.PicScanlineOverrun);
-                            for (0..count) |_| {
+                            if (takeValues(source, packet.channel, count)) |values| {
+                                copyValues(packet.channel, row[x * 4 ..][0 .. count * 4], values);
+                                x += count;
+                            } else for (0..count) |_| {
                                 try readValue(source, packet.channel, row[x * 4 ..][0..4]);
                                 x += 1;
                             }

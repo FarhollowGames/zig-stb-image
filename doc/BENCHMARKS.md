@@ -106,6 +106,73 @@ median time over the original's, so below 1 is faster.
 | psd rle via reader | 394.6 | 0.4% | 338.4 | 4.2% | 0.86 | | |
 | psd rle via file | 367.0 | 0.9% | 309.9 | 2.0% | 0.84 | | |
 
+## Second machine: the remaining passes (24 November 2026)
+
+Measured at commit `3f17cdf` (branch `review/remaining-passes`) against
+`5543dc2` (`main` with the PIC rows added), on a cloud virtual machine:
+an Intel Xeon (Emerald Rapids) at 2.1 GHz, 4 virtual CPUs, Linux 6.18,
+Ubuntu 24.04 (glibc 2.39), with other builds running. Flags as above,
+for the machine's own CPU (`emeraldrapids`). The two builds' benchmarks
+ran in turn, three times each, every row 11 samples; the table gives
+port time over the original SSE2 build's, the median of the three runs
+and their spread (lowest to highest). No row's bytes differed.
+
+The kept changes are the HDR and PIC rows. The PSD raw rows and the TGA
+and PSD RLE rows moved with the merge of the float-load fix, which
+changes no PSD or TGA code: from the commit just before that merge to
+the one after it, psd raw went 0.23 to 0.36 and psd rle 0.52 to 0.36, in
+two interleaved runs. Other rows moved by up to 0.05 either way. On this
+machine two rows are slower than the original, before and after: jpeg
+4:2:0 to rgba (1.27) and tga raw to rgba (1.35); jpeg progressive (0.98)
+and pnm (1.00) are level. On the first machine these rows were 0.96,
+0.63, 0.97 and 0.99.
+
+| feature | before | spread | after | spread |
+| --- | ---: | ---: | ---: | ---: |
+| png rgb | 0.86 | 0.84 to 0.86 | 0.85 | 0.85 to 0.86 |
+| png rgba | 0.90 | 0.88 to 0.92 | 0.92 | 0.91 to 0.92 |
+| png grey | 0.72 | 0.72 to 0.75 | 0.74 | 0.74 to 0.74 |
+| png rgb 16-bit | 0.92 | 0.92 to 0.93 | 0.97 | 0.97 to 0.99 |
+| png rgb adam7 | 0.85 | 0.84 to 0.85 | 0.86 | 0.86 to 0.86 |
+| png palette | 0.68 | 0.67 to 0.68 | 0.67 | 0.66 to 0.68 |
+| png rgb to rgba | 0.88 | 0.85 to 0.89 | 0.87 | 0.85 to 0.90 |
+| png rgb to float | 0.80 | 0.79 to 0.81 | 0.79 | 0.79 to 0.82 |
+| jpeg 4:4:4 | 0.83 | 0.82 to 0.84 | 0.81 | 0.79 to 0.82 |
+| jpeg 4:2:0 | 0.69 | 0.69 to 0.69 | 0.68 | 0.67 to 0.68 |
+| jpeg 4:2:0 to rgba | 1.29 | 1.28 to 1.29 | 1.27 | 1.27 to 1.27 |
+| jpeg grey | 0.70 | 0.69 to 0.71 | 0.68 | 0.68 to 0.70 |
+| jpeg progressive | 1.03 | 1.01 to 1.03 | 0.98 | 0.96 to 0.99 |
+| jpeg ycck | 0.83 | 0.82 to 0.86 | 0.83 | 0.82 to 0.84 |
+| bmp 24-bit | 0.07 | 0.07 to 0.08 | 0.07 | 0.07 to 0.07 |
+| bmp 32-bit | 0.07 | 0.07 to 0.08 | 0.08 | 0.07 to 0.08 |
+| bmp 24-bit to rgba | 0.27 | 0.27 to 0.27 | 0.28 | 0.28 to 0.28 |
+| tga raw | 0.46 | 0.46 to 0.47 | 0.46 | 0.44 to 0.47 |
+| tga rle | 0.91 | 0.91 to 0.92 | 0.76 | 0.76 to 0.76 |
+| tga raw to rgba | 1.33 | 1.33 to 1.34 | 1.35 | 1.33 to 1.36 |
+| tga raw to grey | 0.72 | 0.71 to 0.73 | 0.73 | 0.72 to 0.74 |
+| psd raw | 0.22 | 0.22 to 0.23 | 0.31 | 0.31 to 0.32 |
+| psd rle | 0.50 | 0.44 to 0.50 | 0.36 | 0.36 to 0.36 |
+| psd raw to rgb | 0.24 | 0.23 to 0.25 | 0.37 | 0.35 to 0.37 |
+| hdr float | 0.73 | 0.72 to 0.73 | 0.66 | 0.65 to 0.68 |
+| hdr to 8-bit | 0.82 | 0.82 to 0.83 | 0.81 | 0.80 to 0.81 |
+| pnm 8-bit | 1.00 | 0.97 to 1.01 | 1.00 | 0.99 to 1.00 |
+| pnm 16-bit | 1.00 | 1.00 to 1.01 | 1.00 | 0.98 to 1.00 |
+| pic raw | 1.12 | 1.08 to 1.13 | 0.23 | 0.23 to 0.23 |
+| pic rle | 0.92 | 0.91 to 0.92 | 0.62 | 0.62 to 0.63 |
+| gif first frame | 0.52 | 0.51 to 0.53 | 0.52 | 0.51 to 0.52 |
+| gif every frame | 0.46 | 0.45 to 0.49 | 0.45 | 0.44 to 0.45 |
+| zlib inflate | 0.85 | 0.84 to 0.86 | 0.85 | 0.85 to 0.86 |
+| png rgb via reader | 0.83 | 0.83 to 0.83 | 0.84 | 0.84 to 0.85 |
+| png rgb via file | 0.84 | 0.84 to 0.85 | 0.84 | 0.84 to 0.85 |
+| jpeg 4:2:0 via reader | 0.70 | 0.70 to 0.70 | 0.68 | 0.68 to 0.69 |
+| jpeg 4:2:0 via file | 0.70 | 0.70 to 0.71 | 0.69 | 0.69 to 0.69 |
+| bmp 24-bit via reader | 0.15 | 0.15 to 0.16 | 0.14 | 0.14 to 0.27 |
+| bmp 24-bit via file | 0.25 | 0.25 to 0.28 | 0.25 | 0.24 to 0.25 |
+| psd raw via reader | 0.62 | 0.60 to 0.63 | 0.64 | 0.63 to 0.70 |
+| psd raw via file | 0.58 | 0.57 to 0.62 | 0.65 | 0.63 to 0.65 |
+| psd rle via reader | 0.63 | 0.62 to 0.63 | 0.59 | 0.58 to 0.60 |
+| psd rle via file | 0.56 | 0.56 to 0.57 | 0.52 | 0.51 to 0.52 |
+
 ## Known biases and slower rows
 
 - **JPEG.** Much of the port's lead on RGB output is the original's

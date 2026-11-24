@@ -296,9 +296,64 @@ fn loadAndPostprocess16(
     return decoded;
 }
 
+/// Passes every call to `child`, and records whether an allocation failed:
+/// the port reports a failed size check as `error.OutOfMemory` too, as the
+/// original reports it as "outofmem", and this tells the two apart.
+const AllocationWatch = struct {
+    child: std.mem.Allocator,
+    failed: bool = false,
+
+    fn allocator(watch: *AllocationWatch) std.mem.Allocator {
+        return .{ .ptr = watch, .vtable = &vtable };
+    }
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn alloc(context: *anyopaque, len: usize, alignment: std.mem.Alignment, return_address: usize) ?[*]u8 {
+        const watch: *AllocationWatch = @ptrCast(@alignCast(context));
+        const memory = watch.child.rawAlloc(len, alignment, return_address);
+        if (memory == null) watch.failed = true;
+        return memory;
+    }
+
+    fn resize(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) bool {
+        const watch: *AllocationWatch = @ptrCast(@alignCast(context));
+        return watch.child.rawResize(memory, alignment, new_len, return_address);
+    }
+
+    fn remap(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) ?[*]u8 {
+        // A remap that fails leaves the caller to allocate anew, which is
+        // where a failure counts.
+        const watch: *AllocationWatch = @ptrCast(@alignCast(context));
+        return watch.child.rawRemap(memory, alignment, new_len, return_address);
+    }
+
+    fn free(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, return_address: usize) void {
+        const watch: *AllocationWatch = @ptrCast(@alignCast(context));
+        watch.child.rawFree(memory, alignment, return_address);
+    }
+};
+
 /// `stbi__loadf_main`: HDR files decode to floats directly, the others at 8
 /// bits and are then made linear. A failed 8-bit load reports an unknown
-/// image type, as the original does.
+/// image type, as the original does, except where an allocation failed.
 fn loadfMain(gpa: std.mem.Allocator, source: *Source, options: *const Options) Error!Decoded {
     const req_comp = options.reqComp();
     if (hdr.detect(source)) {
@@ -313,9 +368,14 @@ fn loadfMain(gpa: std.mem.Allocator, source: *Source, options: *const Options) E
         }
         return decoded;
     }
-    const decoded = loadAndPostprocess8(gpa, source, options) catch |err| switch (err) {
-        error.OutOfMemory => return err,
-        else => return source.fail(error.UnknownImageType),
+    // The original reports every failure of the 8-bit load as an unknown
+    // image type, a size check that fails as out of memory among them. The
+    // port does too, but returns `error.OutOfMemory` where an allocation
+    // itself failed.
+    var watch: AllocationWatch = .{ .child = gpa };
+    const decoded = loadAndPostprocess8(watch.allocator(), source, options) catch |err| {
+        if (err == error.OutOfMemory and watch.failed) return err;
+        return source.fail(error.UnknownImageType);
     };
     return .{
         .pixels = .{ .f32 = try postprocess.ldrToHdr(

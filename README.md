@@ -125,7 +125,7 @@ listed in [`STATUS.md`](STATUS.md#left-out-approved). In short:
 
 ## Tests
 
-`zig build test` runs 182 tests. 171 run the original beside the port on
+`zig build test` runs 191 tests. 179 run the original beside the port on
 the same inputs and compare their results: success, size, channels, every
 output byte (floats by their bits), the failure reason in both forms, and
 where a file is left. The inputs are the test images of other decoders

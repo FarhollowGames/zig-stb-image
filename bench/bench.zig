@@ -119,6 +119,8 @@ const Input = enum {
     hdr,
     pnm_8,
     pnm_16,
+    pic_raw,
+    pic_rle,
     gif,
     zlib,
 };
@@ -160,6 +162,8 @@ const rows = [_]Row{
     .{ .name = "hdr to 8-bit", .input = .hdr, .kind = .{ .load = .{ .sample = .u8 } } },
     .{ .name = "pnm 8-bit", .input = .pnm_8, .kind = .{ .load = .{ .sample = .u8 } } },
     .{ .name = "pnm 16-bit", .input = .pnm_16, .kind = .{ .load = .{ .sample = .u16 } } },
+    .{ .name = "pic raw", .input = .pic_raw, .kind = .{ .load = .{ .sample = .u8 } } },
+    .{ .name = "pic rle", .input = .pic_rle, .kind = .{ .load = .{ .sample = .u8 } } },
     .{ .name = "gif first frame", .input = .gif, .kind = .{ .load = .{ .sample = .u8 } } },
     .{ .name = "gif every frame", .input = .gif, .kind = .gif },
     .{ .name = "zlib inflate", .input = .zlib, .kind = .zlib },
@@ -651,6 +655,60 @@ fn pnmFile(photo: Photo, sixteen: bool) ![]u8 {
     return out.toOwnedSlice();
 }
 
+/// A Softimage PIC of the photo: one uncompressed RGB packet, or, with
+/// `rle`, an RGB packet and an opaque alpha packet in the mixed form (runs
+/// of two or more equal values, literals otherwise).
+fn picFile(photo: Photo, rle: bool) ![]u8 {
+    var out: std.Io.Writer.Allocating = try .initCapacity(gpa, 1 << 20);
+    const w = &out.writer;
+    try w.writeAll("\x53\x80\xF6\x34");
+    try w.writeAll(&@as([84]u8, @splat(0)));
+    try w.writeAll("PICT");
+    try w.writeInt(u16, @intCast(photo.width), .big);
+    try w.writeInt(u16, @intCast(photo.height), .big);
+    try w.writeAll(&@as([8]u8, @splat(0)));
+    if (!rle) {
+        try w.writeAll(&.{ 0, 8, 0, 0xe0 });
+        try w.writeAll(photo.rgb);
+        return out.toOwnedSlice();
+    }
+    try w.writeAll(&.{ 1, 8, 2, 0xe0, 0, 8, 2, 0x10 });
+    const alpha: [1]u8 = .{255};
+    const row_alpha = try gpa.alloc(u8, photo.width);
+    defer gpa.free(row_alpha);
+    @memset(row_alpha, alpha[0]);
+    for (0..photo.height) |y| {
+        try picMixedRow(w, photo.rgb[y * photo.width * 3 ..][0 .. photo.width * 3], 3);
+        try picMixedRow(w, row_alpha, 1);
+    }
+    return out.toOwnedSlice();
+}
+
+fn picMixedRow(w: *std.Io.Writer, row: []const u8, size: usize) !void {
+    const count = row.len / size;
+    var x: usize = 0;
+    while (x < count) {
+        var run: usize = 1;
+        while (x + run < count and run < 128 and
+            std.mem.eql(u8, row[(x + run) * size ..][0..size], row[x * size ..][0..size])) run += 1;
+        if (run >= 2) {
+            try w.writeByte(@intCast(run + 127));
+            try w.writeAll(row[x * size ..][0..size]);
+            x += run;
+            continue;
+        }
+        var literal: usize = 1;
+        while (x + literal < count and literal < 128) {
+            const at = x + literal;
+            if (at + 1 < count and std.mem.eql(u8, row[at * size ..][0..size], row[(at + 1) * size ..][0..size])) break;
+            literal += 1;
+        }
+        try w.writeByte(@intCast(literal - 1));
+        try w.writeAll(row[x * size ..][0 .. literal * size]);
+        x += literal;
+    }
+}
+
 fn hdrPixels(photo: Photo) ![]f32 {
     const out = try gpa.alloc(f32, photo.rgb.len);
     for (out, photo.rgb) |*f, v| {
@@ -703,6 +761,8 @@ fn prepare(io: std.Io) !std.EnumArray(Input, []const u8) {
     inputs.set(.hdr, try write(5, photo, 3, std.mem.sliceAsBytes(try hdrPixels(photo)), 0));
     inputs.set(.pnm_8, try pnmFile(photo, false));
     inputs.set(.pnm_16, try pnmFile(photo, true));
+    inputs.set(.pic_raw, try picFile(photo, false));
+    inputs.set(.pic_rle, try picFile(photo, true));
     inputs.set(.gif, try readFile(io, bench_paths.gif));
     inputs.set(.zlib, try zlibStream(photo));
     for (rows) |row| {

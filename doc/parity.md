@@ -13,6 +13,17 @@ what the port does on each call they flag; the port refuses every one but
 the two harmless cases below (the empty IDAT, and the scalar IDCT overflow
 on the SSE2 port), see `TESTING.md`.
 
+## Every format
+
+- **A float load of an 8-bit or 16-bit format whose allocation fails.**
+  The original's `stbi_loadf` reports every failure of the 8-bit load as
+  "unknown image type", a failed allocation too. The port returns
+  `error.OutOfMemory` where an allocation failed, so a caller can tell. A
+  size check that the original reports as "outofmem" fails as an unknown
+  image type in both. Not a refusal. Tests: "a float load whose 8-bit load
+  fails a size check as out of memory fails as in the original", and each
+  format's allocation failure test.
+
 ## zlib
 
 - **An initial size of 0, with output to write.**
